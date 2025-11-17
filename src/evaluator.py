@@ -1,4 +1,7 @@
-import scoreq
+import argparse
+import torch.serialization
+with torch.serialization.safe_globals([argparse.Namespace]):
+    import scoreq
 from audiobox_aesthetics.infer import initialize_predictor
 
 class ScoreqEvaluator:
