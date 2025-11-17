@@ -1,6 +1,7 @@
 import argparse
 import sys
 import os
+import yaml
 from tqdm import tqdm
 
 import torch
@@ -9,24 +10,42 @@ import soundfile as sf
 
 sys.path.append('./src')
 from aligner import Aligner
-from evaluator import ScoreqEvaluator
-from embedder import WhisperEmbedder
-from mixer import Mixer
+from mixer import TMixer, TFMixer
 from utils import batchify, load_batch_audio
 
+CONFIG_PATH = './config.yml'
+
 def main(args):
-    model_name = 'whisper-timestamped'
+    with open(CONFIG_PATH, 'r') as config_file:
+        config_data = yaml.safe_load(config_file)
+
+    if args.use_config:
+        noisy_dir = config_data['data_params']['noisy_path']
+        enhanced_dir = config_data['data_params']['enhanced_path']
+        list_file = config_data['data_params']['list_file']
+        out_dir = config_data['data_params']['out_path']
+    else:
+        if args.noisydir is None or args.enhanceddir is None or args.listpath is None or args.savedir is None:
+            print('args.noisydir, enhanceddir, listpath, savedir must be supplied. (use_config is set to False)')
+            exit()
+        noisy_dir = args.noisydir
+        enhanced_dir = args.enhanceddir
+        list_file = args.listpath
+        out_dir = args.savedir
+
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+    model_name = 'whisper-timestamped'
     wt_aligner = Aligner(model=model_name, device=device)
 
-    config_file = open(os.path.join(args.txtfiledir, args.list), 'r').read().splitlines()
+    config_file = open(list_file, 'r').read().splitlines()
 
     # preprocessing metadata
     metadata = []
     for line in tqdm(config_file, desc='Preprocessing...'):
         config_parts = line.split(' ')
-        noisy_path = os.path.join(args.noisydir, config_parts[0])
-        enhanced_path = os.path.join(args.enhanceddir, config_parts[1])
+        noisy_path = os.path.join(noisy_dir, config_parts[0])
+        enhanced_path = os.path.join(enhanced_dir, config_parts[1])
         wav_name = os.path.basename(noisy_path)
         if not os.path.exists(noisy_path):
             print(f'Skipping... | noisy path [{noisy_path}] not found')
@@ -44,7 +63,10 @@ def main(args):
 
     mos_evaluator = ScoreqEvaluator(device)
     whisper_embedder = WhisperEmbedder("openai/whisper-base", device)
-    mixer = Mixer(mos_evaluator, whisper_embedder, device)
+    if config_data['model_params']['model'] == 'TF':
+        mixer = TFMixer(mos_evaluator, whisper_embedder, device)
+    else:
+        mixer = TMixer(mos_evaluator, whisper_embedder, device)
     
     batch_size = 8
     # batch inference
@@ -59,15 +81,15 @@ def main(args):
         for i in range(len(wav_lengths)):
             wav_len = wav_lengths[i]
             wav_name = wav_names[i]
-            sf.write(f'{args.savedir}/{wav_name}', out_wav[i,0:wav_len], 16000)
+            sf.write(f'{out_dir}/{wav_name}', out_wav[i,0:wav_len], 16000)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--noisydir', default='./data',  type=str, help='Path to root data directory')
-    parser.add_argument('--enhanceddir', default='./enhanced', type=str, help='Path to enhanced data directory')
-    parser.add_argument('--txtfiledir', default='./txtfile',  type=str, help='Path to training txt directory')
-    parser.add_argument('--list', default='msp1_11-test2-snr4.txt', type=str, help='File name of the training list txtfile')
-    parser.add_argument('--savedir', type=str, required=False, default='./reconstructed_wavs', help='Output directory for your trained checkpoints')
+    parser.add_argument('--use-config', action='store_true', help='Whether to use config.yaml for directory inputs')
+    parser.add_argument('--noisydir', default=None, type=str, help='Path to root data directory')
+    parser.add_argument('--enhanceddir', default=None, type=str, help='Path to enhanced data directory')
+    parser.add_argument('--listpath', default=None,  type=str, help='Path to training txt directory')
+    parser.add_argument('--savedir', default=None, type=str, help='Path to the output data directory')
     args = parser.parse_args()
 
     main(args)

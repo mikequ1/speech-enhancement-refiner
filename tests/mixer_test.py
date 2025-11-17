@@ -8,7 +8,7 @@ import soundfile as sf
 from aligner import Aligner
 from evaluator import ScoreqEvaluator
 from embedder import WhisperEmbedder
-from mixer import Mixer
+from mixer import TMixer, TFMixer
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu' 
 NOISY_WAV_PATH = './tests/test_noisy_audios.txt'
@@ -57,7 +57,7 @@ def test_whisper_timestamped():
 
     mos_evaluator = ScoreqEvaluator(DEVICE)
     whisper_embedder = WhisperEmbedder("openai/whisper-base", DEVICE)
-    mixer = Mixer(mos_evaluator, whisper_embedder, DEVICE)
+    mixer = TMixer(mos_evaluator, whisper_embedder, DEVICE)
     out = mixer.mix_and_repair(batched_noisy_wavs, batched_enhanced_wavs, intervals)
     print(out.shape)
 
