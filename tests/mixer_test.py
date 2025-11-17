@@ -4,11 +4,11 @@ sys.path.append('./src')
 import torch
 import torchaudio
 from torch.nn.utils.rnn import pad_sequence
+import torch.nn.functional as F
 import soundfile as sf
 from aligner import Aligner
-from evaluator import ScoreqEvaluator
-from embedder import WhisperEmbedder
 from mixer import TMixer, TFMixer
+
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu' 
 NOISY_WAV_PATH = './tests/test_noisy_audios.txt'
@@ -40,6 +40,13 @@ def test_whisper_timestamped():
         wav_enh, _ = torchaudio.load(enhanced_wav_path)
         wav_noi = wav_noi.squeeze(0).to(DEVICE)
         wav_enh = wav_enh.squeeze(0).to(DEVICE)
+
+        wav_len = max(wav_noi.shape[-1], wav_enh.shape[-1])
+        if wav_noi.shape[-1] < wav_len:
+            wav_noi = F.pad(wav_noi, (0, wav_len - wav_noi.shape[-1]))
+        if wav_enh.shape[-1] < wav_len:
+            wav_enh = F.pad(wav_enh, (0, wav_len - wav_enh.shape[-1]))
+
         noisy_wavs.append(wav_noi)
         enhanced_wavs.append(wav_enh)
 
@@ -55,9 +62,13 @@ def test_whisper_timestamped():
     # print(intervals)
     print(metadata)
 
-    mos_evaluator = ScoreqEvaluator(DEVICE)
-    whisper_embedder = WhisperEmbedder("openai/whisper-base", DEVICE)
-    mixer = TMixer(mos_evaluator, whisper_embedder, DEVICE)
+    config_data = {
+        "objective_params":{
+            "quality": ["scoreq", -5],
+            "robustness": ["whisper-embsim", 1]
+        }
+    }
+    mixer = TMixer(config_data, DEVICE)
     out = mixer.mix_and_repair(batched_noisy_wavs, batched_enhanced_wavs, intervals)
     print(out.shape)
 

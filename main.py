@@ -61,12 +61,10 @@ def main(args):
 
         metadata.append([noisy_path, enhanced_path, noisy_segments, enhanced_segments, wav_name])
 
-    mos_evaluator = ScoreqEvaluator(device)
-    whisper_embedder = WhisperEmbedder("openai/whisper-base", device)
     if config_data['model_params']['model'] == 'TF':
-        mixer = TFMixer(mos_evaluator, whisper_embedder, device)
+        mixer = TFMixer(config_data, device)
     else:
-        mixer = TMixer(mos_evaluator, whisper_embedder, device)
+        mixer = TMixer(config_data, device)
     
     batch_size = 8
     # batch inference
@@ -75,8 +73,8 @@ def main(args):
         mix_on_noi = mixer.mix_and_repair(noisy_wavs, enhanced_wavs, noisy_intervals)
         out_wav = mix_on_noi.detach().cpu().numpy()
 
-        if not os.path.exists(args.savedir):
-            os.makedirs(args.savedir)
+        if not os.path.exists(out_dir):
+            os.makedirs(out_dir)
 
         for i in range(len(wav_lengths)):
             wav_len = wav_lengths[i]

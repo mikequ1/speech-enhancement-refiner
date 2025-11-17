@@ -3,6 +3,9 @@ import torchaudio
 import torch.nn.functional as F
 from torch.nn.utils.rnn import pad_sequence
 
+from evaluator import ScoreqEvaluator
+from embedder import WhisperEmbedder
+
 def batchify(items, batch_size):
     for i in range(0, len(items), batch_size):
         yield items[i:i+batch_size]
@@ -44,3 +47,14 @@ def load_batch_audio(batch_meta, device):
     batched_enhanced_wavs = pad_sequence(enhanced_wavs, batch_first=True, padding_value=0.0)
 
     return batched_noisy_wavs, batched_enhanced_wavs, noisy_intervals, enhanced_intervals, lengths, wav_names
+
+def parse_objectives(config_data, device):
+    quality_models = []
+    robustness_models = []
+    for model_name, model_coef in config_data['objective_params']['quality']:
+        if model_name == 'scoreq':
+            quality_models.append((ScoreqEvaluator(device), model_coef))
+    for model_name, model_coef in config_data['objective_params']['robustness']:
+        if model_name == 'whisper-embsim':
+            robustness_models.append((WhisperEmbedder('openai/whisper-base', device), model_coef))
+    return quality_models, robustness_models

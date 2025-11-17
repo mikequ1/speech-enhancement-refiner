@@ -2,15 +2,15 @@ import sys
 sys.path.append('./src')
 import torch
 import torch.nn.functional as F
+from utils import parse_objectives
 
 SR = 16000
 class TMixer:
-    def __init__(self, mos_model, embedding_model, device):
+    def __init__(self, config_data, device):
         self.device = device
-        self.mos_model = mos_model
-        self.embedding_model = embedding_model
+        self.evaluator_models, self.robustness_models = parse_objectives(config_data, device)
         self.steps = 20
-        self.lr = 0.05
+        self.lr = 0.2
 
     def _prepare_intervals(self, intervals, B, T):
         batch_ids_list = []
@@ -66,8 +66,11 @@ class TMixer:
         kernel_size = 201  # 200/16k = 1/80 s convolution steps
         kernel = torch.ones(1, 1, kernel_size, device=self.device) / kernel_size
         # reference embedding
-        ref_melspec = self.embedding_model.transform_melspec(noi)
-        ref_emb = self.embedding_model.embed(ref_melspec).detach()
+        reference_embeddings = []
+        for robustness_model, _ in self.robustness_models:
+            ref_melspec = robustness_model.transform_melspec(noi)
+            ref_emb = robustness_model.embed(ref_melspec).detach()
+            reference_embeddings.append(ref_emb)
 
         # Optimization Loop
         for _ in range(self.steps):
@@ -85,16 +88,18 @@ class TMixer:
             out = alpha_mask * enh + (1.0 - alpha_mask) * noi
             
             # loss calculation
-            mos_scores_t = self.mos_model.evaluate(out)
-            out_melspec = self.embedding_model.transform_melspec(out)
-            out_emb = self.embedding_model.embed(out_melspec)
-
-            cost_mos = mos_scores_t.mean() # quality component
-            cost_embsim = F.cosine_similarity(out_emb, ref_emb, dim=1).mean() # robustness component
-
             loss = 0
-            loss -= cost_mos
-            loss += cost_embsim
+            for i, (evaluator_model, coef) in enumerate(self.evaluator_models):
+                mos_scores_t = evaluator_model.evaluate(out)
+                cost_mos = mos_scores_t.mean()
+                loss += coef * cost_mos
+            for i, (robustness_model, coef) in enumerate(self.robustness_models):
+                out_melspec = robustness_model.transform_melspec(out)
+                out_emb = robustness_model.embed(out_melspec)
+                ref_emb = reference_embeddings[i]
+                cost_embsim = F.cosine_similarity(out_emb, ref_emb, dim=1).mean() # robustness component
+                loss += coef * cost_embsim
+            print(f'Loss: {round(loss.item(),3)} | MOS: {round(cost_mos.item(),3)}, embsim: {round(cost_embsim.item(),3)}')
 
             loss.backward()
             opt.step()
@@ -116,12 +121,11 @@ class TMixer:
 
 
 class TFMixer:
-    def __init__(self, mos_model, embedding_model, device):
+    def __init__(self, config_data, device):
         self.device = device
-        self.mos_model = mos_model
-        self.embedding_model = embedding_model
+        self.evaluator_models, self.robustness_models = parse_objectives(config_data, device)
         self.steps = 20
-        self.lr = 0.05
+        self.lr = 0.2
 
         self.n_fft = 512
         self.hop_length = 160
@@ -211,8 +215,11 @@ class TFMixer:
         tf_kernel = torch.ones(1, 1, kernel_f, kernel_t, device=self.device)
         tf_kernel = tf_kernel / tf_kernel.numel()
         # reference embedding
-        ref_melspec = self.embedding_model.transform_melspec(noi)
-        ref_emb = self.embedding_model.embed(ref_melspec).detach()
+        reference_embeddings = []
+        for robustness_model, _ in self.robustness_models:
+            ref_melspec = robustness_model.transform_melspec(noi)
+            ref_emb = robustness_model.embed(ref_melspec).detach()
+            reference_embeddings.append(ref_emb)
 
         for _ in range(self.steps):
             opt.zero_grad()
@@ -229,16 +236,18 @@ class TFMixer:
             out = self._istft(mix_spec, length=T)  # [B, T]
 
             # loss calculation
-            mos_scores_t = self.mos_model.evaluate(out)
-            out_melspec = self.embedding_model.transform_melspec(out)
-            out_emb = self.embedding_model.embed(out_melspec)
-
-            cost_mos = mos_scores_t.mean()
-            cost_embsim = F.cosine_similarity(out_emb, ref_emb, dim=1).mean()
-
-            loss = 0.0
-            loss -= cost_mos
-            loss += cost_embsim
+            loss = 0
+            for i, (evaluator_model, coef) in enumerate(self.evaluator_models):
+                mos_scores_t = evaluator_model.evaluate(out)
+                cost_mos = mos_scores_t.mean()
+                loss += coef * cost_mos
+            for i, (robustness_model, coef) in enumerate(self.robustness_models):
+                out_melspec = robustness_model.transform_melspec(out)
+                out_emb = robustness_model.embed(out_melspec)
+                ref_emb = reference_embeddings[i]
+                cost_embsim = F.cosine_similarity(out_emb, ref_emb, dim=1).mean() # robustness component
+                loss += coef * cost_embsim
+            print(f'Loss: {round(loss.item(),3)} | MOS: {round(cost_mos.item(),3)}, embsim: {round(cost_embsim.item(),3)}')
 
             loss.backward()
             opt.step()

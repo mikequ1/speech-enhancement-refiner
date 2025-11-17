@@ -1,5 +1,5 @@
-data/urgent2024/SEMamba/fileid_819.wav
-data/urgent2024/SEMamba/fileid_667.wav
-data/urgent2024/SEMamba/fileid_677.wav
-data/urgent2024/SEMamba/fileid_699.wav
-data/urgent2024/SEMamba/fileid_861.wav
+data/urgent2024/enhanced_SEMamba_nb_wav/fileid_819.wav
+data/urgent2024/enhanced_SEMamba_nb_wav/fileid_667.wav
+data/urgent2024/enhanced_SEMamba_nb_wav/fileid_677.wav
+data/urgent2024/enhanced_SEMamba_nb_wav/fileid_699.wav
+data/urgent2024/enhanced_SEMamba_nb_wav/fileid_861.wav
