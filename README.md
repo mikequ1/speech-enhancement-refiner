@@ -28,3 +28,13 @@ CUDA_VISIBLE_DEVICES=3, python main.py         --noisydir ../NRSER2/data/urgent2
 
 ## Downloading Datasets
 To replicate our the experiments shown in our paper:
+
+## Running the Evaluator
+```
+python speech_evaluation.py \
+    --model enhanced-CMGAN \
+    --datadir ./data/urgent2024/enhanced_CMGAN_nb_wav \
+    --cleandir ../NRSER2/data/urgent2024/clean_wav \
+    --list urgent2024.txt \
+    --txtfiledir ../NRSER2/data/urgent2024/txtfiles 
+```

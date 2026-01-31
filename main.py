@@ -54,19 +54,22 @@ def main(args):
             print(f'Skipping... | enhanced path [{noisy_path}] not found')
             continue
 
-        noisy_alignment_dict = wt_aligner.align_whisper_timestamped(noisy_path)
-        enhanced_alignment_dict = wt_aligner.align_whisper_timestamped(enhanced_path)
-        noisy_segments = wt_aligner.get_segments(noisy_alignment_dict)
-        enhanced_segments = wt_aligner.get_segments(enhanced_alignment_dict)
+        try:
+            noisy_alignment_dict = wt_aligner.align_whisper_timestamped(noisy_path)
+            enhanced_alignment_dict = wt_aligner.align_whisper_timestamped(enhanced_path)
+            noisy_segments = wt_aligner.get_segments(noisy_alignment_dict)
+            enhanced_segments = wt_aligner.get_segments(enhanced_alignment_dict)
 
-        metadata.append([noisy_path, enhanced_path, noisy_segments, enhanced_segments, wav_name])
+            metadata.append([noisy_path, enhanced_path, noisy_segments, enhanced_segments, wav_name])
+        except:
+            print(f'Error parsing metadata or aligning for {wav_name}, skipping...')
 
-    if config_data['model_params']['model'] == 'TF':
+    if (args.use_config and config_data['model_params']['model'] == 'TF') or (args.tf):
         mixer = TFMixer(config_data, device)
     else:
         mixer = TMixer(config_data, device)
     
-    batch_size = 8
+    batch_size = 4
     # batch inference
     for batch_meta in tqdm(batchify(metadata, batch_size), desc='Processing batch...'):
         noisy_wavs, enhanced_wavs, noisy_intervals, enhanced_intervals, wav_lengths, wav_names = load_batch_audio(batch_meta, device)
@@ -84,6 +87,7 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--use-config', action='store_true', help='Whether to use config.yaml for directory inputs')
+    parser.add_argument('--tf', action='store_true', help='Perform T-F or T domain mixing and optimization')
     parser.add_argument('--noisydir', default=None, type=str, help='Path to root data directory')
     parser.add_argument('--enhanceddir', default=None, type=str, help='Path to enhanced data directory')
     parser.add_argument('--listpath', default=None,  type=str, help='Path to training txt directory')

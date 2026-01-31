@@ -1,24 +1,24 @@
 data_params:
-  noisy_path: "../NRSER2/data/urgent2024/noisy_wav"
-  enhanced_path: "../NRSER2/data/urgent2024/SEMamba"
-  list_file: "../NRSER2/data/urgent2024/txtfiles/config-test.txt"
-  out_path: "./data/urgent2024/Tcorrected_SEMamba_nb_wav"
+  noisy_path: "./data/urgent2024/noisy_nb_wav"
+  enhanced_path: "./data/urgent2024/enhanced_CMGAN_nb_wav"
+  list_file: "../NRSER2/data/urgent2024/txtfiles/config.txt"
+  out_path: "./data/urgent2024/Tcorrected_CMGAN_nb_wav"
 
 model_params:
-  model: 'TF'
+  model: 'T'
 
 objective_params: # (model, weight_coef) tuples
   quality:
-    - [scoreq, -5]
+    - [scoreq, -1]
     # - [nisqa, -1]
     # - [audiobox.ce, -1]
     # - [audiobox.pq, -1]
   robustness:
-    - [whisper-embsim, 1]
+    - [whisper-embsim, -1]
     # - [wavlm-embsim, 1]
 
 optimizer_params:
   steps: 20
   lr: 0.2
   weight_decay: 0.1
-  kernel_size: 801
+  kernel_size: 401

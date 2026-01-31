@@ -33,6 +33,29 @@ class TMixer:
         ends = torch.tensor(ends_list, dtype=torch.long, device=self.device)
 
         return batch_ids, starts, ends
+
+    def compute_per_sample_objective(self, x, reference_embeddings):
+        total = 0.0
+
+        # MOS-based components
+        for evaluator_model, coef in self.evaluator_models:
+            mos_scores = evaluator_model.evaluate(x)
+            while mos_scores.dim() > 1:
+                mos_scores = mos_scores.mean(dim=-1)
+            total = total + coef * mos_scores
+
+        # robustness / embedding similarity components
+        for i, (robustness_model, coef) in enumerate(self.robustness_models):
+            out_melspec = robustness_model.transform_melspec(x)
+            out_emb = robustness_model.embed(out_melspec)
+            ref_emb = reference_embeddings[i]
+            out_emb = out_emb.to(self.device)
+            ref_emb = ref_emb.to(self.device)
+            cost_embsim = F.cosine_similarity(out_emb, ref_emb, dim=1)
+            print(cost_embsim.device)
+            total = total + coef * cost_embsim
+
+        return total
     
     def _build_alpha_mask(self, alphas, batch_ids, starts, ends, B, T):
         flat_stride = T + 1
@@ -63,7 +86,7 @@ class TMixer:
         # param initialization
         alphas = torch.full((len(batch_ids),), 0.5, device=self.device, requires_grad=True)
         opt = torch.optim.Adam([alphas], lr=self.lr)
-        kernel_size = 201  # 200/16k = 1/80 s convolution steps
+        kernel_size = 401  # 200/16k = 1/80 s convolution steps
         kernel = torch.ones(1, 1, kernel_size, device=self.device) / kernel_size
         # reference embedding
         reference_embeddings = []
@@ -88,18 +111,9 @@ class TMixer:
             out = alpha_mask * enh + (1.0 - alpha_mask) * noi
             
             # loss calculation
-            loss = 0
-            for i, (evaluator_model, coef) in enumerate(self.evaluator_models):
-                mos_scores_t = evaluator_model.evaluate(out)
-                cost_mos = mos_scores_t.mean()
-                loss += coef * cost_mos
-            for i, (robustness_model, coef) in enumerate(self.robustness_models):
-                out_melspec = robustness_model.transform_melspec(out)
-                out_emb = robustness_model.embed(out_melspec)
-                ref_emb = reference_embeddings[i]
-                cost_embsim = F.cosine_similarity(out_emb, ref_emb, dim=1).mean() # robustness component
-                loss += coef * cost_embsim
-            print(f'Loss: {round(loss.item(),3)} | MOS: {round(cost_mos.item(),3)}, embsim: {round(cost_embsim.item(),3)}')
+            per_sample_obj = self.compute_per_sample_objective(out, reference_embeddings)
+            loss = per_sample_obj.mean()
+            # print(f'Loss: {round(loss.item(),3)} | MOS: {round(cost_mos.item(),3)}, embsim: {round(cost_embsim.item(),3)}')
 
             loss.backward()
             opt.step()
@@ -117,7 +131,18 @@ class TMixer:
                 groups=1
             ).squeeze(1)
             out = alpha_mask * enh + (1.0 - alpha_mask) * noi
-        return out
+
+        obj_noi = self.compute_per_sample_objective(noi, reference_embeddings)
+        obj_enh = self.compute_per_sample_objective(enh, reference_embeddings)
+        obj_mix = self.compute_per_sample_objective(out, reference_embeddings)
+
+        all_objs = torch.stack([obj_noi, obj_enh, obj_mix], dim=0) # [3, B]
+        best_idx = torch.argmin(all_objs, dim=0) # [B]
+
+        candidates = torch.stack([noi, enh, out], dim=0) # [3, B, T]
+        batch_indices = torch.arange(B, device=noi.device)
+        best = candidates[best_idx, batch_indices, :] # [B, T]
+        return best
 
 
 class TFMixer:
@@ -193,6 +218,27 @@ class TFMixer:
             alpha_mask[b, :, s:e] = alpha_clamped[i].unsqueeze(-1)
         return alpha_mask
 
+    def compute_per_sample_objective(self, x, reference_embeddings):
+        total = 0.0
+
+        # MOS-based components
+        for evaluator_model, coef in self.evaluator_models:
+            mos_scores = evaluator_model.evaluate(x)
+            while mos_scores.dim() > 1:
+                mos_scores = mos_scores.mean(dim=-1)
+            total = total + coef * mos_scores
+
+        # robustness / embedding similarity components
+        for i, (robustness_model, coef) in enumerate(self.robustness_models):
+            out_melspec = robustness_model.transform_melspec(x)
+            out_emb = robustness_model.embed(out_melspec)
+            ref_emb = reference_embeddings[i]
+            out_emb = out_emb.to(self.device)
+            ref_emb = ref_emb.to(self.device)
+            cost_embsim = F.cosine_similarity(out_emb, ref_emb, dim=1)
+            total = total + coef * cost_embsim
+
+        return total
 
     def mix_and_repair(self, noi, enh, intervals):
         # Initialization
@@ -236,18 +282,9 @@ class TFMixer:
             out = self._istft(mix_spec, length=T)  # [B, T]
 
             # loss calculation
-            loss = 0
-            for i, (evaluator_model, coef) in enumerate(self.evaluator_models):
-                mos_scores_t = evaluator_model.evaluate(out)
-                cost_mos = mos_scores_t.mean()
-                loss += coef * cost_mos
-            for i, (robustness_model, coef) in enumerate(self.robustness_models):
-                out_melspec = robustness_model.transform_melspec(out)
-                out_emb = robustness_model.embed(out_melspec)
-                ref_emb = reference_embeddings[i]
-                cost_embsim = F.cosine_similarity(out_emb, ref_emb, dim=1).mean() # robustness component
-                loss += coef * cost_embsim
-            print(f'Loss: {round(loss.item(),3)} | MOS: {round(cost_mos.item(),3)}, embsim: {round(cost_embsim.item(),3)}')
+            per_sample_obj = self.compute_per_sample_objective(out, reference_embeddings)
+            loss = per_sample_obj.mean()
+            # print(f'Loss: {round(loss.item(),3)} | MOS: {round(cost_mos.item(),3)}, embsim: {round(cost_embsim.item(),3)}')
 
             loss.backward()
             opt.step()
@@ -265,4 +302,15 @@ class TFMixer:
             ).squeeze(1)
             mix_spec = alpha_mask_sm * spec_enh + (1.0 - alpha_mask_sm) * spec_noi
             out = self._istft(mix_spec, length=T)
-        return out
+
+        obj_noi = self.compute_per_sample_objective(noi, reference_embeddings)
+        obj_enh = self.compute_per_sample_objective(enh, reference_embeddings)
+        obj_mix = self.compute_per_sample_objective(out, reference_embeddings)
+
+        all_objs = torch.stack([obj_noi, obj_enh, obj_mix], dim=0) # [3, B]
+        best_idx = torch.argmin(all_objs, dim=0) # [B]
+
+        candidates = torch.stack([noi, enh, out], dim=0) # [3, B, T]
+        batch_indices = torch.arange(B, device=noi.device)
+        best = candidates[best_idx, batch_indices, :] # [B, T]
+        return best

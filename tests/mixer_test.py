@@ -64,8 +64,8 @@ def test_whisper_timestamped():
 
     config_data = {
         "objective_params":{
-            "quality": ["scoreq", -5],
-            "robustness": ["whisper-embsim", 1]
+            "quality": [["scoreq", -5]],
+            "robustness": [["whisper-embsim", 1]]
         }
     }
     mixer = TMixer(config_data, DEVICE)

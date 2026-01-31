@@ -56,6 +56,7 @@ def init_json(args):
             wavfiles[filename] = cur_dict
             pbar.update(1)
 
+
     with open(f'speech_metrics/{args.model}__{args.list.split(".txt")[0]}.json', 'w') as f:
         json.dump(wavfiles, f, indent=4)
 
@@ -464,15 +465,14 @@ def main():
 
     args = parser.parse_args()
 
-    # init_json(args)
-    # compute_pesq_stoi(args)
+    init_json(args)
+    compute_pesq_stoi(args)
     # compute_spsim(args)
-    # compute_audiobox(args)
-    # compute_scoreq(args)
+    compute_audiobox(args)
+    compute_scoreq(args)
     # compute_wer(args)
-    # compute_pitch_energy(args)
-    # compute_jitter_shimmer(args)
-    compute_verification(args)
+    compute_jitter_shimmer(args)
+    # compute_verification(args)
     # extract_csv(args)
 
     
